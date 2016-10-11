@@ -1,17 +1,23 @@
-'''class for demonization process'''
-import os, sys, time, atexit
+"""class for demonization process"""
+import os
+import time
+import sys
+import atexit
 from signal import SIGTERM
+try:
+    from config import PID_FILE
+except ImportError:
+    PID_FILE = '/tmp/atc_daemon.pid '
 
 
 class Daemon:
-    '''class for demonization process'''
+    """class for demonization process"""
     def __init__(self, pidfile, loger, stdin='/dev/null', stdout='/dev/null', stderr='/dev/null'):
         self.stdin = stdin
         self.stdout = stdout
         self.stderr = stderr
         self.pidfile = pidfile
         self.loger = loger
-
 
     def daemonize(self):
         """do the UNIX double-fork magic, see Stevens' "Advanced
@@ -30,7 +36,7 @@ class Daemon:
         os.setsid()
         os.umask(0)
 
-        #do second fork
+        # do second fork
         try:
             pid = os.fork()
             if pid > 0:
@@ -42,30 +48,32 @@ class Daemon:
         # redirect standart file descriptors
         sys.stdout.flush()
         sys.stderr.flush()
-        si = file(self.stdin, 'r')
-        so = file(self.stdout, 'a+')
-        se = file(self.stderr, 'a+', 0)
+        si = open(self.stdin, 'r')
+        so = open(self.stdout, 'a+')
+        se = open(self.stderr, 'a+')
         os.dup2(si.fileno(), sys.stdin.fileno())
         os.dup2(so.fileno(), sys.stdout.fileno())
         os.dup2(se.fileno(), sys.stderr.fileno())
 
+        umask_original = os.umask(0)
         # write pidfile
         atexit.register(self.delpid)
         pid = str(os.getpid())
-        file(self.pidfile, 'w+').write('%s\n' % pid)
+        with open(self.pidfile, 'w+') as fd:
+            fd.write('%s\n' % pid)
+        os.chmod(self.pidfile, 0o666)
         self.loger.debug('AtcDaemon start with pid: %s' % pid)
-
+        os.umask(umask_original)
 
     def delpid(self):
-        '''remove pidfile'''
+        """remove pidfile"""
         os.remove(self.pidfile)
 
-
     def start(self):
-        '''Start the daemon'''
+        """Start the daemon"""
         # Check for a pidfile to see if the daemon already runs
         try:
-            pf = file(self.pidfile,'r')
+            pf = open(self.pidfile,'r')
             pid = int(pf.read().strip())
             pf.close()
         except IOError:
@@ -80,13 +88,12 @@ class Daemon:
         self.daemonize()
         self.run()
 
-
     def stop(self):
-        '''Stop the daemon'''
+        """Stop the daemon"""
         self.loger.debug('AtcDaemon stop')
         # Get the pid from pid file
         try:
-            pf = file(self.pidfile, 'r')
+            pf = open(self.pidfile, 'r')
             pid = int(pf.read().strip())
             pf.close()
         except IOError:
@@ -97,30 +104,26 @@ class Daemon:
             self.loger.warning(message % self.pidfile)
             return
 
-
         # Try killing the daemon process
         try:
-            while True:
-                os.kill(pid, SIGTERM)
-                time.sleep(0.1)
-        except OSError, err:
-            err = str(err)
-            self.loger.warning(err)
-            if err.find("No such process") > 0:
-                if os.path.exists(self.pidfile):
-                    os.remove(self.pidfile)
-            else:
-                sys.exit(1)
-
+            os.remove(self.pidfile)
+        except OSError:
+            with open(self.pidfile, 'w') as fd:
+                fd.write('')
+                # if err.find("No such process") > 0:
+                #    if os.path.exists(self.pidfile):
+                #        os.remove(self.pidfile)
+                # else:
+                #    sys.exit(1)
 
     def restart(self):
-        '''Restart the daemon'''
+        """Restart the daemon"""
         self.stop()
+        time.sleep(1)
         self.start()
 
-
     def run(self):
-        '''You should override this method when you subclass Daemon.
+        """You should override this method when you subclass Daemon.
         It will be called after the process has been
-        daemonized by start() or restart().'''
+        daemonized by start() or restart()."""
         pass
